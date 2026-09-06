@@ -1,0 +1,301 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+VERSION="0.1.0"
+
+# Resolve symlinks to find the project files when the CLI is installed via symlink.
+SOURCE="${BASH_SOURCE[0]}"
+while [[ -L "${SOURCE}" ]]; do
+  DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+  SOURCE="$(readlink "${SOURCE}")"
+  [[ "${SOURCE}" != /* ]] && SOURCE="${DIR}/${SOURCE}"
+done
+SCRIPT_DIR="$(cd -P "$(dirname "${SOURCE}")" && pwd)"
+BOOKMARKS_PARSER="${SCRIPT_DIR}/../lib/bookmarks.swift"
+HISTORY_PARSER="${SCRIPT_DIR}/../lib/history.swift"
+
+show_help() {
+  cat << EOF
+safari - Read Safari data from the command line
+
+Usage: $(basename "$0") COMMAND [SUBCOMMAND] [OPTIONS]
+
+Commands:
+  bookmarks list [OPTIONS]  List Safari bookmarks
+  bookmarks ls [OPTIONS]    Alias for 'bookmarks list'
+  reading-list list [OPTIONS]  List Safari Reading List entries
+  reading-list ls [OPTIONS]    Alias for 'reading-list list'
+  history list [OPTIONS]    List Safari history
+  history ls [OPTIONS]      Alias for 'history list'
+
+Options for list commands:
+  --json                    Print JSON instead of human-readable output
+  --file PATH               Read a specific Safari data file
+
+Global Options:
+  -h, --help                Show this help message
+  -v, --version             Show version
+
+Environment Variables:
+  SAFARI_BOOKMARKS_FILE     Bookmarks file to read
+                            (default: ~/Library/Safari/Bookmarks.plist)
+  SAFARI_HISTORY_FILE       History database to read
+                            (default: ~/Library/Safari/History.db)
+
+Examples:
+  $(basename "$0") bookmarks list
+  $(basename "$0") bookmarks ls
+  $(basename "$0") bookmarks list --json
+  $(basename "$0") reading-list list
+  $(basename "$0") reading-list list --json
+  $(basename "$0") history list
+  $(basename "$0") history list --json
+  $(basename "$0") bookmarks list --file ./Bookmarks.plist
+EOF
+}
+
+show_collection_help() {
+  local collection="$1"
+  local label="${collection}"
+  [[ "${collection}" == "reading-list" ]] && label="Reading List"
+  cat << EOF
+Usage: $(basename "$0") ${collection} COMMAND [OPTIONS]
+
+Commands:
+  list [OPTIONS]            List Safari ${label}
+  ls [OPTIONS]              Alias for 'list'
+
+Options:
+  --json                    Print JSON instead of human-readable output
+  --file PATH               Read a specific Bookmarks.plist file
+  -h, --help                Show this help message
+EOF
+}
+
+show_history_help() {
+  cat << EOF
+Usage: $(basename "$0") history COMMAND [OPTIONS]
+
+Commands:
+  list [OPTIONS]            List Safari history
+  ls [OPTIONS]              Alias for 'list'
+
+Options:
+  --json                    Print JSON instead of human-readable output
+  --file PATH               Read a specific History.db file
+  -h, --help                Show this help message
+EOF
+}
+
+show_version() {
+  echo "safari ${VERSION}"
+}
+
+die() {
+  echo "Error: $*" >&2
+  exit 1
+}
+
+cmd_collection_list() {
+  local collection="$1"
+  shift
+
+  local json=false
+  local bookmarks_file="${SAFARI_BOOKMARKS_FILE:-}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)
+        json=true
+        shift
+        ;;
+      --file)
+        [[ $# -ge 2 ]] || die "--file requires a path"
+        [[ -n "$2" && "$2" != -* ]] || die "--file requires a path"
+        bookmarks_file="$2"
+        shift 2
+        ;;
+      -h|--help)
+        show_collection_help "${collection}"
+        exit 0
+        ;;
+      --)
+        shift
+        [[ $# -eq 0 ]] || die "Unexpected argument '$1'"
+        ;;
+      *)
+        die "Unexpected argument '$1'"
+        ;;
+    esac
+  done
+
+  if [[ -z "${bookmarks_file}" ]]; then
+    [[ -n "${HOME:-}" ]] || die "HOME is not set; use --file or SAFARI_BOOKMARKS_FILE"
+    bookmarks_file="${HOME}/Library/Safari/Bookmarks.plist"
+  fi
+
+  [[ -f "${bookmarks_file}" ]] || die "Bookmarks file not found at '${bookmarks_file}'"
+  [[ -r "${bookmarks_file}" ]] || die "Bookmarks file is not readable at '${bookmarks_file}'"
+  [[ -f "${BOOKMARKS_PARSER}" ]] || die "Bookmark parser not found at '${BOOKMARKS_PARSER}'"
+
+  local swift_bin="${SWIFT_BIN:-swift}"
+  command -v "${swift_bin}" >/dev/null 2>&1 || die "Swift is required to read Safari bookmarks"
+
+  if [[ "${collection}" == "reading-list" ]]; then
+    if [[ "${json}" == true ]]; then
+      "${swift_bin}" "${BOOKMARKS_PARSER}" --reading-list --json "${bookmarks_file}"
+    else
+      "${swift_bin}" "${BOOKMARKS_PARSER}" --reading-list "${bookmarks_file}"
+    fi
+  elif [[ "${json}" == true ]]; then
+    "${swift_bin}" "${BOOKMARKS_PARSER}" --json "${bookmarks_file}"
+  else
+    "${swift_bin}" "${BOOKMARKS_PARSER}" "${bookmarks_file}"
+  fi
+}
+
+cmd_bookmarks_list() {
+  cmd_collection_list "bookmarks" "$@"
+}
+
+cmd_reading_list_list() {
+  cmd_collection_list "reading-list" "$@"
+}
+
+cmd_history_list() {
+  local json=false
+  local history_file="${SAFARI_HISTORY_FILE:-}"
+
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --json)
+        json=true
+        shift
+        ;;
+      --file)
+        [[ $# -ge 2 ]] || die "--file requires a path"
+        [[ -n "$2" && "$2" != -* ]] || die "--file requires a path"
+        history_file="$2"
+        shift 2
+        ;;
+      -h|--help)
+        show_history_help
+        exit 0
+        ;;
+      --)
+        shift
+        [[ $# -eq 0 ]] || die "Unexpected argument '$1'"
+        ;;
+      *)
+        die "Unexpected argument '$1'"
+        ;;
+    esac
+  done
+
+  if [[ -z "${history_file}" ]]; then
+    [[ -n "${HOME:-}" ]] || die "HOME is not set; use --file or SAFARI_HISTORY_FILE"
+    history_file="${HOME}/Library/Safari/History.db"
+  fi
+
+  [[ -f "${history_file}" ]] || die "History database not found at '${history_file}'"
+  [[ -r "${history_file}" ]] || die "History database is not readable at '${history_file}'"
+  [[ -f "${HISTORY_PARSER}" ]] || die "History parser not found at '${HISTORY_PARSER}'"
+
+  local swift_bin="${SWIFT_BIN:-swift}"
+  command -v "${swift_bin}" >/dev/null 2>&1 || die "Swift is required to read Safari history"
+
+  if [[ "${json}" == true ]]; then
+    "${swift_bin}" "${HISTORY_PARSER}" --json "${history_file}"
+  else
+    "${swift_bin}" "${HISTORY_PARSER}" "${history_file}"
+  fi
+}
+
+main() {
+  [[ $# -gt 0 ]] || {
+    show_help >&2
+    exit 1
+  }
+
+  case "$1" in
+    bookmarks)
+      shift
+      [[ $# -gt 0 ]] || {
+        show_collection_help "bookmarks" >&2
+        exit 1
+      }
+
+      case "$1" in
+        list|ls)
+          shift
+          cmd_bookmarks_list "$@"
+          ;;
+        -h|--help)
+          show_collection_help "bookmarks"
+          ;;
+        *)
+          echo "Error: Unknown bookmarks command '$1'" >&2
+          echo "Run '$(basename "$0") bookmarks --help' for usage information" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    reading-list)
+      shift
+      [[ $# -gt 0 ]] || {
+        show_collection_help "reading-list" >&2
+        exit 1
+      }
+
+      case "$1" in
+        list|ls)
+          shift
+          cmd_reading_list_list "$@"
+          ;;
+        -h|--help)
+          show_collection_help "reading-list"
+          ;;
+        *)
+          echo "Error: Unknown reading-list command '$1'" >&2
+          echo "Run '$(basename "$0") reading-list --help' for usage information" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    history)
+      shift
+      [[ $# -gt 0 ]] || {
+        show_history_help >&2
+        exit 1
+      }
+
+      case "$1" in
+        list|ls)
+          shift
+          cmd_history_list "$@"
+          ;;
+        -h|--help)
+          show_history_help
+          ;;
+        *)
+          echo "Error: Unknown history command '$1'" >&2
+          echo "Run '$(basename "$0") history --help' for usage information" >&2
+          exit 1
+          ;;
+      esac
+      ;;
+    -h|--help)
+      show_help
+      ;;
+    -v|--version)
+      show_version
+      ;;
+    *)
+      echo "Error: Unknown command '$1'" >&2
+      echo "Run '$(basename "$0") --help' for usage information" >&2
+      exit 1
+      ;;
+  esac
+}
+
+main "$@"

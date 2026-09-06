@@ -1,0 +1,92 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>Children</key>
+	<array>
+		<dict>
+			<key>Title</key>
+			<string>Favorites</string>
+			<key>WebBookmarkType</key>
+			<string>WebBookmarkTypeList</string>
+			<key>Children</key>
+			<array>
+				<dict>
+					<key>URLString</key>
+					<string>https://example.com/</string>
+					<key>URIDictionary</key>
+					<dict>
+						<key>title</key>
+						<string>Example</string>
+					</dict>
+					<key>WebBookmarkType</key>
+					<string>WebBookmarkTypeLeaf</string>
+					<key>IconData</key>
+					<data>AAECAwQ=</data>
+					<key>AddedAt</key>
+					<date>2026-08-31T10:00:00Z</date>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Title</key>
+			<string>Bookmarks Menu</string>
+			<key>WebBookmarkType</key>
+			<string>WebBookmarkTypeList</string>
+			<key>Children</key>
+			<array>
+				<dict>
+					<key>Title</key>
+					<string>Development</string>
+					<key>WebBookmarkType</key>
+					<string>WebBookmarkTypeList</string>
+					<key>Children</key>
+					<array>
+						<dict>
+							<key>URLString</key>
+							<string>https://developer.apple.com/</string>
+							<key>URIDictionary</key>
+							<dict>
+								<key>title</key>
+								<string>Apple Developer</string>
+							</dict>
+							<key>WebBookmarkType</key>
+							<string>WebBookmarkTypeLeaf</string>
+						</dict>
+					</array>
+				</dict>
+				<dict>
+					<key>Title</key>
+					<string>Visible title</string>
+					<key>URLString</key>
+					<string>https://example.org/</string>
+					<key>WebBookmarkType</key>
+					<string>WebBookmarkTypeLeaf</string>
+				</dict>
+			</array>
+		</dict>
+		<dict>
+			<key>Title</key>
+			<string>com.apple.ReadingList</string>
+			<key>WebBookmarkType</key>
+			<string>WebBookmarkTypeList</string>
+			<key>Children</key>
+			<array>
+				<dict>
+					<key>URLString</key>
+					<string>https://reading.example/</string>
+					<key>URIDictionary</key>
+					<dict>
+						<key>title</key>
+						<string>Reading item</string>
+					</dict>
+					<key>WebBookmarkType</key>
+					<string>WebBookmarkTypeLeaf</string>
+				</dict>
+			</array>
+		</dict>
+	</array>
+	<key>WebBookmarkType</key>
+	<string>WebBookmarkTypeList</string>
+</dict>
+</plist>

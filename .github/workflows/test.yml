@@ -1,0 +1,31 @@
+name: Test
+
+permissions:
+  contents: read
+
+on: [push, pull_request]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Test
+    runs-on: macos-latest
+    timeout-minutes: 10
+
+    steps:
+      - uses: actions/checkout@v5
+
+      - name: Install test dependencies
+        run: brew install bats-core jq
+
+      - name: Verify test dependencies
+        run: |
+          bats --version
+          jq --version
+          sqlite3 --version
+
+      - name: Run tests
+        run: bats tests/
