@@ -6,7 +6,7 @@ Read Safari bookmarks, Reading List entries, and history from the command line.
 
 <br/>
 
-![safari in action](https://s.electerious.com/images/aufgabe/readme-day.jpg)
+![safari in action](https://s.electerious.com/images/safari/readme.png)
 
 </div>
 
