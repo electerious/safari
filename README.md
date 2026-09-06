@@ -2,6 +2,8 @@
 
 # safari
 
+[![Test](https://github.com/electerious/safari/actions/workflows/test.yml/badge.svg)](https://github.com/electerious/safari/actions/workflows/test.yml)
+
 Read Safari bookmarks, Reading List entries, and history from the command line.
 
 <br/>
