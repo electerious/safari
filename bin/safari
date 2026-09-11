@@ -32,6 +32,9 @@ Options for list commands:
   --json                    Print JSON instead of human-readable output
   --file PATH               Read a specific Safari data file
 
+Options for history list:
+  --last DURATION           Only show recent visits (e.g. 24h, 7d, 2w, 1mo)
+
 Global Options:
   -h, --help                Show this help message
   -v, --version             Show version
@@ -83,6 +86,7 @@ Commands:
 Options:
   --json                    Print JSON instead of human-readable output
   --file PATH               Read a specific History.db file
+  --last DURATION           Only show recent visits (e.g. 24h, 7d, 2w, 1mo)
   -h, --help                Show this help message
 EOF
 }
@@ -165,6 +169,7 @@ cmd_reading_list_list() {
 cmd_history_list() {
   local json=false
   local history_file="${SAFARI_HISTORY_FILE:-}"
+  local last_duration=""
 
   while [[ $# -gt 0 ]]; do
     case "$1" in
@@ -176,6 +181,13 @@ cmd_history_list() {
         [[ $# -ge 2 ]] || die "--file requires a path"
         [[ -n "$2" && "$2" != -* ]] || die "--file requires a path"
         history_file="$2"
+        shift 2
+        ;;
+      --last)
+        [[ $# -ge 2 ]] || die "--last requires a duration"
+        [[ -n "$2" && "$2" != -* ]] || die "--last requires a duration"
+        [[ -z "${last_duration}" ]] || die "--last may only be specified once"
+        last_duration="$2"
         shift 2
         ;;
       -h|--help)
@@ -204,11 +216,12 @@ cmd_history_list() {
   local swift_bin="${SWIFT_BIN:-swift}"
   command -v "${swift_bin}" >/dev/null 2>&1 || die "Swift is required to read Safari history"
 
-  if [[ "${json}" == true ]]; then
-    "${swift_bin}" "${HISTORY_PARSER}" --json "${history_file}"
-  else
-    "${swift_bin}" "${HISTORY_PARSER}" "${history_file}"
-  fi
+  local swift_args=()
+  [[ "${json}" == true ]] && swift_args+=(--json)
+  [[ -n "${last_duration}" ]] && swift_args+=(--last "${last_duration}")
+  swift_args+=("${history_file}")
+
+  "${swift_bin}" "${HISTORY_PARSER}" "${swift_args[@]}"
 }
 
 main() {

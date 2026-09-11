@@ -104,6 +104,12 @@ Human-readable output includes the title and URL:
 ```bash
 safari history list
 safari history ls
+
+# Show recent visits
+safari history list --last 24h
+safari history list --last 7d
+safari history list --last 2w
+safari history list --last 1mo
 ```
 
 Human-readable history output includes the page title, visit time, and URL:
@@ -113,6 +119,8 @@ Human-readable history output includes the page title, visit time, and URL:
   2026-08-31 12:34:56
   https://example.com/
 ```
+
+`--last` accepts a positive integer followed by `h` for hours, `d` for days, `w` for weeks, or `mo` for calendar months. Hours, days, and weeks are rolling elapsed durations. Calendar months are calculated from the current local date and time.
 
 ### JSON Output
 

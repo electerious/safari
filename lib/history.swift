@@ -15,7 +15,11 @@ struct HistoryRecord: Codable {
 
 enum HistoryError: LocalizedError {
     case missingPath
+    case missingDuration
+    case duplicateDuration
     case invalidArguments
+    case invalidDuration(String)
+    case invalidTimeWindow
     case openFailed(String)
     case queryFailed(String)
 
@@ -23,14 +27,94 @@ enum HistoryError: LocalizedError {
         switch self {
         case .missingPath:
             return "a History.db path is required"
+        case .missingDuration:
+            return "--last requires a duration"
+        case .duplicateDuration:
+            return "--last may only be specified once"
         case .invalidArguments:
-            return "expected a History.db path and optionally --json"
+            return "expected a History.db path and optionally --json or --last DURATION"
+        case .invalidDuration(let duration):
+            return "invalid history duration '\(duration)'; expected a positive integer followed by h, d, w, or mo"
+        case .invalidTimeWindow:
+            return "could not calculate the history time window"
         case .openFailed(let message):
             return "could not open the history database: \(message)"
         case .queryFailed(let message):
             return "could not query the history database: \(message)"
         }
     }
+}
+
+struct HistoryDuration {
+    enum Unit {
+        case hours
+        case days
+        case weeks
+        case months
+    }
+
+    let amount: Int
+    let unit: Unit
+
+    static func parse(_ value: String) throws -> HistoryDuration {
+        let numericPart: String
+        let unit: Unit
+
+        if value.hasSuffix("mo") {
+            numericPart = String(value.dropLast(2))
+            unit = .months
+        } else if value.hasSuffix("h") {
+            numericPart = String(value.dropLast())
+            unit = .hours
+        } else if value.hasSuffix("d") {
+            numericPart = String(value.dropLast())
+            unit = .days
+        } else if value.hasSuffix("w") {
+            numericPart = String(value.dropLast())
+            unit = .weeks
+        } else {
+            throw HistoryError.invalidDuration(value)
+        }
+
+        let isPositiveInteger = !numericPart.isEmpty && numericPart.unicodeScalars.allSatisfy {
+            $0.value >= 48 && $0.value <= 57
+        }
+
+        guard isPositiveInteger, let amount = Int(numericPart), amount > 0 else {
+            throw HistoryError.invalidDuration(value)
+        }
+
+        return HistoryDuration(amount: amount, unit: unit)
+    }
+
+    func window(endingAt end: Date, calendar: Calendar) throws -> HistoryTimeWindow {
+        let start: Date
+
+        switch unit {
+        case .hours:
+            start = end.addingTimeInterval(-Double(amount) * 60 * 60)
+        case .days:
+            start = end.addingTimeInterval(-Double(amount) * 24 * 60 * 60)
+        case .weeks:
+            start = end.addingTimeInterval(-Double(amount) * 7 * 24 * 60 * 60)
+        case .months:
+            guard let calendarStart = calendar.date(byAdding: .month, value: -amount, to: end) else {
+                throw HistoryError.invalidTimeWindow
+            }
+            start = calendarStart
+        }
+
+        guard start.timeIntervalSinceReferenceDate.isFinite else {
+            throw HistoryError.invalidTimeWindow
+        }
+
+        return HistoryTimeWindow(start: start, end: end)
+    }
+}
+
+struct HistoryTimeWindow {
+    let start: Date
+    let end: Date
 }
 
 func fail(_ message: String) -> Never {
@@ -64,13 +148,25 @@ final class ReadOnlyDatabase {
         sqlite3_close(handle)
     }
 
-    func historyRecords() throws -> [HistoryRecord] {
-        let sql = """
-        SELECT history_visits.title, history_items.url, history_visits.visit_time
-        FROM history_visits
-        JOIN history_items ON history_items.id = history_visits.history_item
-        ORDER BY history_visits.visit_time DESC, history_visits.id DESC
-        """
+    func historyRecords(in window: HistoryTimeWindow? = nil) throws -> [HistoryRecord] {
+        let sql: String
+        if window == nil {
+            sql = """
+            SELECT history_visits.title, history_items.url, history_visits.visit_time
+            FROM history_visits
+            JOIN history_items ON history_items.id = history_visits.history_item
+            ORDER BY history_visits.visit_time DESC, history_visits.id DESC
+            """
+        } else {
+            sql = """
+            SELECT history_visits.title, history_items.url, history_visits.visit_time
+            FROM history_visits
+            JOIN history_items ON history_items.id = history_visits.history_item
+            WHERE history_visits.visit_time >= ?
+              AND history_visits.visit_time <= ?
+            ORDER BY history_visits.visit_time DESC, history_visits.id DESC
+            """
+        }
 
         var statement: OpaquePointer?
         let prepareResult = sqlite3_prepare_v2(handle, sql, -1, &statement, nil)
@@ -79,6 +175,23 @@ final class ReadOnlyDatabase {
         }
         defer {
             sqlite3_finalize(statement)
+        }
+
+        if let window = window {
+            let startResult = sqlite3_bind_double(
+                statement,
+                1,
+                window.start.timeIntervalSinceReferenceDate
+            )
+            let endResult = sqlite3_bind_double(
+                statement,
+                2,
+                window.end.timeIntervalSinceReferenceDate
+            )
+
+            guard startResult == SQLITE_OK && endResult == SQLITE_OK else {
+                throw HistoryError.queryFailed(sqliteMessage(handle))
+            }
         }
 
         var records: [HistoryRecord] = []
@@ -186,25 +299,64 @@ func writeHumanReadable(_ records: [HistoryRecord]) {
 
 let arguments = Array(CommandLine.arguments.dropFirst())
 var jsonOutput = false
+var lastDuration: HistoryDuration?
 var historyPath: String?
 
-for argument in arguments {
+var argumentIndex = 0
+while argumentIndex < arguments.count {
+    let argument = arguments[argumentIndex]
+
     if argument == "--json" {
         jsonOutput = true
+    } else if argument == "--last" {
+        guard lastDuration == nil else {
+            fail(HistoryError.duplicateDuration.localizedDescription)
+        }
+
+        guard argumentIndex + 1 < arguments.count else {
+            fail(HistoryError.missingDuration.localizedDescription)
+        }
+
+        let durationArgument = arguments[argumentIndex + 1]
+        guard !durationArgument.hasPrefix("-") else {
+            fail(HistoryError.missingDuration.localizedDescription)
+        }
+
+        do {
+            lastDuration = try HistoryDuration.parse(durationArgument)
+        } catch {
+            fail(error.localizedDescription)
+        }
+
+        argumentIndex += 1
     } else if historyPath == nil {
         historyPath = argument
     } else {
         fail(HistoryError.invalidArguments.localizedDescription)
     }
+
+    argumentIndex += 1
 }
 
 guard let historyPath = historyPath else {
     fail(HistoryError.missingPath.localizedDescription)
 }
 
+var historyWindow: HistoryTimeWindow?
+if let lastDuration = lastDuration {
+    var calendar = Calendar(identifier: .gregorian)
+    calendar.timeZone = TimeZone.current
+
+    do {
+        historyWindow = try lastDuration.window(endingAt: Date(), calendar: calendar)
+    } catch {
+        fail(error.localizedDescription)
+    }
+}
+
 do {
     let database = try ReadOnlyDatabase(path: historyPath)
-    let records = try database.historyRecords()
+    let records = try database.historyRecords(in: historyWindow)
 
     if jsonOutput {
         try writeJSON(records)

@@ -12,6 +12,26 @@ setup() {
   export SAFARI_HISTORY_FILE="${HISTORY_FIXTURE}"
 }
 
+add_relative_history_entries() {
+  sqlite3 "${HISTORY_FIXTURE}" <<'SQL'
+INSERT INTO history_items (id, url) VALUES
+  (3, 'https://recent.example/'),
+  (4, 'https://day.example/'),
+  (5, 'https://week.example/'),
+  (6, 'https://month.example/'),
+  (7, 'https://old.example/'),
+  (8, 'https://future.example/');
+
+INSERT INTO history_visits (id, history_item, visit_time, title) VALUES
+  (4, 3, strftime('%s', 'now') - 978307200 - (30 * 60), 'Recent visit'),
+  (5, 4, strftime('%s', 'now') - 978307200 - (3 * 86400), 'Day-old visit'),
+  (6, 5, strftime('%s', 'now') - 978307200 - (10 * 86400), 'Week-old visit'),
+  (7, 6, strftime('%s', 'now') - 978307200 - (45 * 86400), 'Month-old visit'),
+  (8, 7, strftime('%s', 'now') - 978307200 - (70 * 86400), 'Old visit'),
+  (9, 8, strftime('%s', 'now') - 978307200 + (60 * 60), 'Future visit');
+SQL
+}
+
 @test "bookmarks list prints human-readable bookmarks" {
   run "${CLI}" bookmarks list
   [ "${status}" -eq 0 ]
@@ -119,6 +139,103 @@ setup() {
   [ "$(printf '%s\n' "${output}" | jq -r '.[0].visited_at')" = "2001-01-01T00:05:00.000Z" ]
 }
 
+@test "history list filters visits from the last two hours" {
+  add_relative_history_entries
+
+  run "${CLI}" history list --last 2h --json
+  [ "${status}" -eq 0 ]
+  [ "$(printf '%s\n' "${output}" | jq 'length')" -eq 1 ]
+  [ "$(printf '%s\n' "${output}" | jq -r '.[0].title')" = "Recent visit" ]
+}
+
+@test "history list prints filtered human-readable visits" {
+  add_relative_history_entries
+
+  run "${CLI}" history list --last 2w
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"- Recent visit"* ]]
+  [[ "${output}" == *"- Week-old visit"* ]]
+  [[ "${output}" != *"- Month-old visit"* ]]
+}
+
+@test "history list filters visits from the last two days" {
+  add_relative_history_entries
+
+  run "${CLI}" history list --json --last 2d
+  [ "${status}" -eq 0 ]
+  [ "$(printf '%s\n' "${output}" | jq 'length')" -eq 1 ]
+  [ "$(printf '%s\n' "${output}" | jq -r '.[0].title')" = "Recent visit" ]
+}
+
+@test "history list filters visits from the last two weeks" {
+  add_relative_history_entries
+
+  run "${CLI}" history list --last 2w --json
+  [ "${status}" -eq 0 ]
+  [ "$(printf '%s\n' "${output}" | jq 'length')" -eq 3 ]
+  [[ "${output}" != *"Month-old visit"* ]]
+  [[ "${output}" != *"Future visit"* ]]
+}
+
+@test "history list filters visits from the last two months" {
+  add_relative_history_entries
+
+  run "${CLI}" history list --last 2mo --json
+  [ "${status}" -eq 0 ]
+  [ "$(printf '%s\n' "${output}" | jq 'length')" -eq 4 ]
+  [[ "${output}" == *"Month-old visit"* ]]
+  [[ "${output}" != *"Old visit"* ]]
+  [[ "${output}" != *"Future visit"* ]]
+}
+
+@test "history ls accepts a time filter" {
+  add_relative_history_entries
+
+  run "${CLI}" history ls --last 2w --json
+  [ "${status}" -eq 0 ]
+  [ "$(printf '%s\n' "${output}" | jq 'length')" -eq 3 ]
+}
+
+@test "history list returns an empty result for an unmatched time filter" {
+  run "${CLI}" history list --last 1h --json
+  [ "${status}" -eq 0 ]
+  [ "$(printf '%s\n' "${output}" | jq 'length')" -eq 0 ]
+}
+
+@test "history list validates time filters" {
+  local duration
+  for duration in 0h 1m 1.5h 2y; do
+    run "${CLI}" history list --last "${duration}"
+    [ "${status}" -eq 1 ]
+    [[ "${output}" == *"invalid history duration '${duration}'"* ]]
+  done
+
+  run "${CLI}" history list --last
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"--last requires a duration"* ]]
+
+  run "${CLI}" history list --last -1h
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"--last requires a duration"* ]]
+
+  run "${CLI}" history list --last 1h --last 2h
+  [ "${status}" -eq 1 ]
+  [[ "${output}" == *"--last may only be specified once"* ]]
+}
+
+@test "history list time filters do not modify the database" {
+  add_relative_history_entries
+  local before
+  local after
+  before="$(cksum "${HISTORY_FIXTURE}")"
+
+  run "${CLI}" history list --last 2w --json
+  [ "${status}" -eq 0 ]
+
+  after="$(cksum "${HISTORY_FIXTURE}")"
+  [ "${before}" = "${after}" ]
+}
+
 @test "history list accepts a file option" {
   unset SAFARI_HISTORY_FILE
   run "${CLI}" history list --file "${HISTORY_FIXTURE}"
@@ -222,6 +339,10 @@ setup() {
   run "${CLI}" --help
   [ "${status}" -eq 0 ]
   [[ "${output}" == *"bookmarks list"* ]]
+
+  run "${CLI}" history --help
+  [ "${status}" -eq 0 ]
+  [[ "${output}" == *"--last DURATION"* ]]
 
   run "${CLI}" --version
   [ "${status}" -eq 0 ]
